@@ -57,6 +57,8 @@ import {
   formatQuantity,
   formatTimestamp,
   formatUsdValue,
+  getLiveLowValueAssets,
+  getLiveReferenceWalletTokens,
   KeylessCheckBadge,
   KeylessWalletAvatar,
   PREVIEW_PORTFOLIO_CONFIG,
@@ -154,6 +156,10 @@ export const Web3WalletViews: React.FC = () => {
     lastUpdated,
     fxProvenance,
     wallets,
+    settings,
+    updateSettings,
+    isRefreshingMarket,
+    refreshMarketData,
   } = useExchange();
 
   // =========================================================================
@@ -226,7 +232,19 @@ export const Web3WalletViews: React.FC = () => {
     'All' | 'BSC' | 'Robinhood' | 'Solana' | 'Ethereum'
   >('All');
   const [homeSearchQuery, setHomeSearchQuery] = useState('');
-  const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>(['FLOAT', 'STONK', 'SOL']);
+  const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('nexus_wallet_watchlist_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore storage error
+    }
+    return ['FLOAT', 'STONK', 'SOL'];
+  });
+  const [marketsWatchlistOnly, setMarketsWatchlistOnly] = useState(false);
 
   const [marketsTopTab, setMarketsTopTab] = useState<'Overview' | 'Stocks' | 'Memes' | 'Tracker'>(
     'Overview'
@@ -263,9 +281,29 @@ export const Web3WalletViews: React.FC = () => {
     'Tokens' | 'Stocks' | 'DeFi' | 'NFTs' | 'Perps'
   >('Tokens');
   const [showLowValueAssets, setShowLowValueAssets] = useState(false);
-  const [hideWeb3Balance, setHideWeb3Balance] = useState(false);
+  const [hideWeb3Balance, setHideWeb3Balance] = useState<boolean>(() => Boolean(settings.hideBalances));
   const [assetsTokenSearch, setAssetsTokenSearch] = useState('');
   const [showAssetsSearchInput, setShowAssetsSearchInput] = useState(false);
+
+  useEffect(() => {
+    setHideWeb3Balance(Boolean(settings.hideBalances));
+  }, [settings.hideBalances]);
+
+  const handleSetHideWeb3Balance = useCallback(
+    (nextOrUpdater: boolean | ((prev: boolean) => boolean)) => {
+      const next =
+        typeof nextOrUpdater === 'function' ? nextOrUpdater(hideWeb3Balance) : nextOrUpdater;
+      setHideWeb3Balance(next);
+      updateSettings({ hideBalances: next });
+    },
+    [hideWeb3Balance, updateSettings]
+  );
+
+  const toggleHideWeb3Balance = useCallback(() => {
+    const next = !hideWeb3Balance;
+    setHideWeb3Balance(next);
+    updateSettings({ hideBalances: next });
+  }, [hideWeb3Balance, updateSettings]);
 
   // Listen for Header Icons in App.tsx (ShieldCheck -> 'approvals', Settings2 -> 'settings')
   useEffect(() => {
@@ -491,15 +529,27 @@ export const Web3WalletViews: React.FC = () => {
     generateQrCodeDataUrl(activeReceiveAddress).then((url) => setQrDataUrl(url));
   }, [activeReceiveAddress]);
 
+  const isAnyRefreshing = isRefreshingBalances || isRefreshingMarket;
+
   const handleRefreshOnChain = useCallback(async () => {
+    if (isRefreshingBalances || isRefreshingMarket) return;
     setIsRefreshingBalances(true);
     try {
-      await refreshConnectedWalletBalances();
-      showToast('On-chain balances synchronized');
+      await Promise.allSettled([
+        refreshMarketData(true),
+        refreshConnectedWalletBalances(),
+      ]);
+      showToast('Live market prices & wallet balances refreshed');
     } finally {
       setIsRefreshingBalances(false);
     }
-  }, [refreshConnectedWalletBalances, showToast]);
+  }, [
+    isRefreshingBalances,
+    isRefreshingMarket,
+    refreshMarketData,
+    refreshConnectedWalletBalances,
+    showToast,
+  ]);
 
   // =========================================================================
   // 4. VAULT CREATE / IMPORT / CONNECT / SEND HANDLERS
@@ -730,9 +780,19 @@ export const Web3WalletViews: React.FC = () => {
     showToast(res.message);
   };
 
-  // Filtered Token Lists for Home & Markets
+  // Live Token Lists for Home, Markets & Low-Value Assets (driven by real Binance WebSocket/REST tickers)
+  const liveWalletTokens = useMemo(
+    () => getLiveReferenceWalletTokens(tickers, valuation.inrPerUsdt),
+    [tickers, valuation.inrPerUsdt]
+  );
+
+  const liveLowValueAssets = useMemo(
+    () => getLiveLowValueAssets(tickers, valuation.inrPerUsdt),
+    [tickers, valuation.inrPerUsdt]
+  );
+
   const filteredHomeTokens = useMemo(() => {
-    return REFERENCE_WALLET_TOKENS.filter((tok) => {
+    return liveWalletTokens.filter((tok) => {
       if (homeSearchQuery) {
         const q = homeSearchQuery.toLowerCase();
         if (!tok.symbol.toLowerCase().includes(q) && !tok.name.toLowerCase().includes(q))
@@ -749,15 +809,16 @@ export const Web3WalletViews: React.FC = () => {
       }
       return true;
     });
-  }, [homeSearchQuery, homeTokenTab, homeChainFilter, watchlistSymbols]);
+  }, [liveWalletTokens, homeSearchQuery, homeTokenTab, homeChainFilter, watchlistSymbols]);
 
   const filteredMarketsTokens = useMemo(() => {
-    return REFERENCE_WALLET_TOKENS.filter((tok) => {
+    return liveWalletTokens.filter((tok) => {
       if (marketsSearch) {
         const q = marketsSearch.toLowerCase();
         if (!tok.symbol.toLowerCase().includes(q) && !tok.name.toLowerCase().includes(q))
           return false;
       }
+      if (marketsWatchlistOnly && !watchlistSymbols.includes(tok.symbol)) return false;
       if (marketsTableTab === 'Alpha' && tok.category !== 'Alpha') return false;
       if (marketsTableTab === 'Stocks' && tok.category !== 'Stocks') return false;
       if (marketsTableTab === 'Perps' && tok.category !== 'Perps') return false;
@@ -769,13 +830,26 @@ export const Web3WalletViews: React.FC = () => {
       }
       return true;
     });
-  }, [marketsSearch, marketsTableTab, marketsChainPill]);
+  }, [
+    liveWalletTokens,
+    marketsSearch,
+    marketsWatchlistOnly,
+    watchlistSymbols,
+    marketsTableTab,
+    marketsChainPill,
+  ]);
 
-  const toggleWatchlist = (sym: string) => {
-    setWatchlistSymbols((prev) =>
-      prev.includes(sym) ? prev.filter((s) => s !== sym) : [...prev, sym]
-    );
-  };
+  const toggleWatchlist = useCallback((sym: string) => {
+    setWatchlistSymbols((prev) => {
+      const next = prev.includes(sym) ? prev.filter((s) => s !== sym) : [...prev, sym];
+      try {
+        localStorage.setItem('nexus_wallet_watchlist_v1', JSON.stringify(next));
+      } catch {
+        // ignore storage error
+      }
+      return next;
+    });
+  }, []);
 
   // =========================================================================
   // SHARED MODALS (VAULT CREATE/IMPORT WIZARD, UNLOCK, CONNECT, TX DETAIL)
@@ -809,7 +883,7 @@ export const Web3WalletViews: React.FC = () => {
           onSelectValuationMode={setActiveValuationMode}
           valuation={valuation}
           hideBalance={hideWeb3Balance}
-          setHideBalance={setHideWeb3Balance}
+          setHideBalance={handleSetHideWeb3Balance}
           activeWalletLabel={activeWalletLabel}
           activePrimaryAddress={activePrimaryAddress}
           verifiedWeb3UsdBalance={verifiedWeb3UsdBalance}
@@ -863,8 +937,8 @@ export const Web3WalletViews: React.FC = () => {
 
       {/* 1. Self-Custody Vault Creation & Import Wizard Modal */}
       {vaultWizardMode !== 'none' && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-[#1E2329] rounded-2xl w-full max-w-[400px] p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 pt-safe-top pb-safe-bottom">
+          <div className="bg-[#1E2329] rounded-2xl w-full max-w-[400px] p-5 shadow-2xl max-h-[calc(100dvh-var(--safe-area-top)-var(--safe-area-bottom)-32px)] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <KeyRound size={18} className="text-[#F0B90B]" />
@@ -1088,7 +1162,7 @@ export const Web3WalletViews: React.FC = () => {
 
       {/* 2. Unlock & Backup Seed Phrase Modal */}
       {showUnlockModal && localVault && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 pt-safe-top pb-safe-bottom">
           <div className="bg-[#1E2329] rounded-2xl w-full max-w-sm p-5 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-[#EAECEF]">Export Recovery Phrase</h3>
@@ -1147,7 +1221,7 @@ export const Web3WalletViews: React.FC = () => {
 
       {/* 3. Connect External Provider Modal */}
       {showConnectModal && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 pt-safe-top pb-safe-bottom">
           <div className="bg-[#1E2329] rounded-2xl w-full max-w-sm p-5 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-[16px] font-bold text-[#EAECEF]">Connect Browser Wallet</h3>
@@ -1200,7 +1274,7 @@ export const Web3WalletViews: React.FC = () => {
 
       {/* 4. On-Chain Transaction Detail Modal */}
       {selectedTxRecord && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 pt-safe-top pb-safe-bottom">
           <div className="bg-[#1E2329] rounded-2xl w-full max-w-sm p-5 space-y-3.5">
             <div className="flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-[#EAECEF]">Transaction Details</h3>
@@ -1344,10 +1418,32 @@ export const Web3WalletViews: React.FC = () => {
 
           <div className="flex items-center justify-between mt-1">
             <div>
-              <div className="text-[30px] leading-[36px] font-bold text-[#EAECEF] tabular-nums tracking-[-0.02em]">
-                {hideWeb3Balance ? '******' : formatInrValue(activeDisplayInr)}
+              <div className="flex items-center gap-2">
+                <div
+                  onClick={toggleHideWeb3Balance}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') toggleHideWeb3Balance();
+                  }}
+                  title={hideWeb3Balance ? 'Show Balance' : 'Hide Balance'}
+                  className="text-[30px] leading-[36px] font-bold text-[#EAECEF] tabular-nums tracking-[-0.02em] cursor-pointer"
+                >
+                  {hideWeb3Balance ? '******' : formatInrValue(activeDisplayInr)}
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleHideWeb3Balance}
+                  className="text-[#848E9C] hover:text-[#EAECEF] p-1 cursor-pointer"
+                  title={hideWeb3Balance ? 'Show Balance' : 'Hide Balance'}
+                >
+                  {hideWeb3Balance ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
               </div>
-              <div className="text-[12px] tabular-nums mt-0.5 flex items-center gap-1.5">
+              <div
+                onClick={toggleHideWeb3Balance}
+                className="text-[12px] tabular-nums mt-0.5 flex items-center gap-1.5 cursor-pointer"
+              >
                 <span className="text-[#848E9C] font-medium">{homeTimeframe}</span>
                 <span
                   className={
@@ -1368,6 +1464,17 @@ export const Web3WalletViews: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleRefreshOnChain}
+                disabled={isAnyRefreshing}
+                className="h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer shrink-0 bg-[#202630] text-[#848E9C] hover:text-[#EAECEF] hover:bg-[#2B3139] disabled:opacity-60"
+                title="Refresh market prices & portfolio"
+                aria-label="Refresh market prices & portfolio"
+              >
+                <RefreshCw size={15} className={isAnyRefreshing ? 'animate-spin text-[#F0B90B]' : ''} />
+              </button>
+
               <button
                 type="button"
                 onClick={() => setShowPortfolioGraph((prev) => !prev)}
@@ -1874,6 +1981,7 @@ export const Web3WalletViews: React.FC = () => {
             <div className="px-4 pt-1 space-y-1">
               {filteredHomeTokens.map((tok) => {
                 const isUp = tok.change24h >= 0;
+                const isStarred = watchlistSymbols.includes(tok.symbol);
                 return (
                   <div
                     key={tok.symbol}
@@ -1885,6 +1993,20 @@ export const Web3WalletViews: React.FC = () => {
                     className="py-2.5 flex items-center justify-between hover:bg-[#202630]/50 rounded-xl px-1 cursor-pointer transition-colors"
                   >
                     <div className="flex items-center gap-3 min-w-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleWatchlist(tok.symbol);
+                        }}
+                        className="text-[#848E9C] hover:text-[#F0B90B] p-0.5 shrink-0"
+                        title={isStarred ? 'Remove from Watchlist' : 'Add to Watchlist'}
+                      >
+                        <Star
+                          size={13}
+                          className={isStarred ? 'fill-[#F0B90B] text-[#F0B90B]' : ''}
+                        />
+                      </button>
                       <div className="relative shrink-0">
                         <CoinIcon asset={tok.symbol} size="lg" />
                         <span
@@ -1913,7 +2035,17 @@ export const Web3WalletViews: React.FC = () => {
                     </div>
 
                     <div className="text-right tabular-nums shrink-0">
-                      <div className="text-[15px] font-bold text-[#EAECEF]">{tok.priceInr}</div>
+                      <div
+                        className={`text-[15px] font-bold transition-colors duration-300 ${
+                          tok.flash === 'up'
+                            ? 'text-[#0ECB81]'
+                            : tok.flash === 'down'
+                            ? 'text-[#F6465D]'
+                            : 'text-[#EAECEF]'
+                        }`}
+                      >
+                        {tok.priceInr}
+                      </div>
                       <div
                         className={`text-[12px] font-semibold mt-0.5 ${
                           isUp ? 'text-[#0ECB81]' : 'text-[#F6465D]'
@@ -1982,10 +2114,22 @@ export const Web3WalletViews: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={() => showToast(`${watchlistSymbols.length} tokens in Watchlist`)}
-            className="w-9 h-9 rounded-xl bg-[#202630] flex items-center justify-center text-[#F0B90B]"
+            onClick={() => setMarketsWatchlistOnly((prev) => !prev)}
+            className={`w-9 h-9 rounded-xl bg-[#202630] flex items-center justify-center transition-colors cursor-pointer ${
+              marketsWatchlistOnly ? 'text-[#F0B90B] ring-1 ring-[#F0B90B]/50' : 'text-[#848E9C] hover:text-[#F0B90B]'
+            }`}
+            title={marketsWatchlistOnly ? 'Showing Watchlist only (tap to show all)' : 'Filter by Starred Watchlist'}
           >
-            <Star size={15} className="fill-[#F0B90B]" />
+            <Star size={15} className={marketsWatchlistOnly ? 'fill-[#F0B90B]' : ''} />
+          </button>
+          <button
+            type="button"
+            onClick={handleRefreshOnChain}
+            disabled={isAnyRefreshing}
+            className="w-9 h-9 rounded-xl bg-[#202630] flex items-center justify-center text-[#848E9C] hover:text-[#EAECEF] cursor-pointer disabled:opacity-60"
+            title="Refresh live market prices"
+          >
+            <RefreshCw size={14} className={isAnyRefreshing ? 'animate-spin text-[#F0B90B]' : ''} />
           </button>
         </div>
 
@@ -2080,7 +2224,17 @@ export const Web3WalletViews: React.FC = () => {
                 </div>
 
                 <div className="text-right tabular-nums">
-                  <div className="text-[14px] font-bold text-[#EAECEF]">{tok.priceInr}</div>
+                  <div
+                    className={`text-[14px] font-bold transition-colors duration-300 ${
+                      tok.flash === 'up'
+                        ? 'text-[#0ECB81]'
+                        : tok.flash === 'down'
+                        ? 'text-[#F6465D]'
+                        : 'text-[#EAECEF]'
+                    }`}
+                  >
+                    {tok.priceInr}
+                  </div>
                   <div
                     className={`text-[12px] font-semibold ${
                       isUp ? 'text-[#0ECB81]' : 'text-[#F6465D]'
@@ -2112,7 +2266,7 @@ export const Web3WalletViews: React.FC = () => {
     const payBal = useExchangeBalance ? exchangeSpendableForPay : verifiedSpendableForPay;
 
     return (
-      <div className="flex flex-col flex-1 bg-[#181A20] min-h-full pb-24 select-none">
+      <div className="flex flex-col flex-1 bg-[#181A20] min-h-full pt-safe-top pb-24 select-none">
         {renderSharedOverlays()}
 
         {/* Top Bar: Swap | Bridge | Pro | Perps + Chart & Settings icons */}
@@ -2395,7 +2549,18 @@ export const Web3WalletViews: React.FC = () => {
               <span>Only show current token</span>
             </label>
             <div className="flex items-center gap-3">
-              <RefreshCw size={13} className="cursor-pointer hover:text-[#EAECEF]" />
+              <button
+                type="button"
+                onClick={handleRefreshOnChain}
+                disabled={isAnyRefreshing}
+                className="p-0.5 text-[#848E9C] hover:text-[#EAECEF] cursor-pointer disabled:opacity-60"
+                title="Refresh market prices & holdings"
+              >
+                <RefreshCw
+                  size={13}
+                  className={isAnyRefreshing ? 'animate-spin text-[#F0B90B]' : ''}
+                />
+              </button>
               <Sliders size={13} className="cursor-pointer hover:text-[#EAECEF]" />
             </div>
           </div>
@@ -2418,10 +2583,10 @@ export const Web3WalletViews: React.FC = () => {
               </div>
               <div className="text-right tabular-nums">
                 <div className="text-[14px] font-bold text-[#EAECEF]">
-                  {formatQuantity(displayedUsdtQty)}
+                  {hideWeb3Balance ? '******' : formatQuantity(displayedUsdtQty)}
                 </div>
                 <div className="text-[11px] text-[#848E9C]">
-                  {formatInrValue(displayedInrBalance)}
+                  {hideWeb3Balance ? '******' : formatInrValue(displayedInrBalance)}
                 </div>
               </div>
             </div>
@@ -2619,21 +2784,28 @@ export const Web3WalletViews: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setAssetsSubScreen('my_wallets')}
-            className="cursor-pointer"
-            title="Keyless MPC Security & Auto Sign"
-          >
-            <KeylessCheckBadge />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setAssetsSubScreen('my_wallets')}
+          className="cursor-pointer"
+          title="Keyless MPC Security & Auto Sign"
+        >
+          <KeylessCheckBadge />
+        </button>
       </div>
 
       {/* B. Portfolio Summary: Large INR Balance Only (Matches 00:21 - 00:23, 01:02 - 01:08) */}
       <div className="px-4 py-1">
-        <div className="flex items-center gap-2">
+        <div
+          onClick={toggleHideWeb3Balance}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') toggleHideWeb3Balance();
+          }}
+          title={hideWeb3Balance ? 'Show Balance' : 'Hide Balance'}
+          className="inline-flex items-center cursor-pointer"
+        >
           <span className="text-[30px] leading-[36px] font-bold text-[#EAECEF] tabular-nums tracking-[-0.02em]">
             {hideWeb3Balance ? '******' : formatInrValue(displayedInrBalance)}
           </span>
@@ -2836,7 +3008,7 @@ export const Web3WalletViews: React.FC = () => {
 
       {/* F. Total Assets Summary Row (Matches 00:21 - 00:23, 01:02 - 01:08) */}
       <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-        <div>
+        <div onClick={toggleHideWeb3Balance} className="cursor-pointer">
           <div className="text-[12px] text-[#848E9C] flex items-center gap-1.5">
             <span>Total Assets</span>
           </div>
@@ -2925,62 +3097,78 @@ export const Web3WalletViews: React.FC = () => {
 
             {showLowValueAssets && (
               <div className="space-y-1 pt-1">
-                {REFERENCE_LOW_VALUE_ASSETS.filter((item) =>
-                  assetsTokenSearch
-                    ? item.symbol.toLowerCase().includes(assetsTokenSearch.toLowerCase()) ||
-                      item.name.toLowerCase().includes(assetsTokenSearch.toLowerCase())
-                    : true
-                ).map((item) => {
-                  const isUp = item.change24h >= 0;
-                  return (
-                    <div
-                      key={item.key}
-                      onClick={() => {
-                        setSendTokenSymbol(item.symbol);
-                        setAssetsSubScreen('receive');
-                      }}
-                      className="py-3 flex items-center justify-between hover:bg-[#202630]/40 rounded-xl px-1 cursor-pointer transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <CoinIcon asset={item.symbol} size="lg" />
-                          {!item.isNative && (
-                            <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#F0B90B] border-2 border-[#181A20] flex items-center justify-center text-[7px] font-extrabold text-[#181A20]">
-                              B
-                            </span>
-                          )}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[15px] font-bold text-[#EAECEF]">
-                              {item.symbol}
-                            </span>
-                            {item.isNative && (
-                              <span className="px-1.5 py-0.5 rounded bg-[#142922] text-[#0ECB81] text-[10px] font-semibold">
-                                Native
+                {liveLowValueAssets
+                  .filter((item) =>
+                    assetsTokenSearch
+                      ? item.symbol.toLowerCase().includes(assetsTokenSearch.toLowerCase()) ||
+                        item.name.toLowerCase().includes(assetsTokenSearch.toLowerCase())
+                      : true
+                  )
+                  .map((item) => {
+                    const isUp = item.change24h >= 0;
+                    return (
+                      <div
+                        key={item.key}
+                        onClick={() => {
+                          setSendTokenSymbol(item.symbol);
+                          setAssetsSubScreen('receive');
+                        }}
+                        className="py-3 flex items-center justify-between hover:bg-[#202630]/40 rounded-xl px-1 cursor-pointer transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="relative">
+                            <CoinIcon asset={item.symbol} size="lg" />
+                            {!item.isNative && (
+                              <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#F0B90B] border-2 border-[#181A20] flex items-center justify-center text-[7px] font-extrabold text-[#181A20]">
+                                B
                               </span>
                             )}
-                            <span className="px-1.5 py-0.5 rounded bg-[#2D2618] text-[#F0B90B] text-[10px] font-semibold">
-                              {item.apyTag}
-                            </span>
                           </div>
-                          <div className="text-[12px] text-[#848E9C] tabular-nums mt-0.5 flex items-center gap-1.5">
-                            <span>{item.priceInr}</span>
-                            <span className={isUp ? 'text-[#0ECB81]' : 'text-[#F6465D]'}>
-                              {isUp ? '+' : ''}
-                              {item.change24h.toFixed(2)}%
-                            </span>
+                          <div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[15px] font-bold text-[#EAECEF]">
+                                {item.symbol}
+                              </span>
+                              {item.isNative && (
+                                <span className="px-1.5 py-0.5 rounded bg-[#142922] text-[#0ECB81] text-[10px] font-semibold">
+                                  Native
+                                </span>
+                              )}
+                              <span className="px-1.5 py-0.5 rounded bg-[#2D2618] text-[#F0B90B] text-[10px] font-semibold">
+                                {item.apyTag}
+                              </span>
+                            </div>
+                            <div className="text-[12px] text-[#848E9C] tabular-nums mt-0.5 flex items-center gap-1.5">
+                              <span
+                                className={
+                                  item.flash === 'up'
+                                    ? 'text-[#0ECB81] transition-colors duration-300'
+                                    : item.flash === 'down'
+                                    ? 'text-[#F6465D] transition-colors duration-300'
+                                    : ''
+                                }
+                              >
+                                {item.priceInr}
+                              </span>
+                              <span className={isUp ? 'text-[#0ECB81]' : 'text-[#F6465D]'}>
+                                {isUp ? '+' : ''}
+                                {item.change24h.toFixed(2)}%
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-right tabular-nums">
+                          <div className="text-[15px] font-bold text-[#EAECEF]">
+                            {hideWeb3Balance ? '******' : '0'}
+                          </div>
+                          <div className="text-[12px] text-[#848E9C] mt-0.5">
+                            {hideWeb3Balance ? '******' : item.valueInr}
                           </div>
                         </div>
                       </div>
-
-                      <div className="text-right tabular-nums">
-                        <div className="text-[15px] font-bold text-[#EAECEF]">0</div>
-                        <div className="text-[12px] text-[#848E9C] mt-0.5">{item.valueInr}</div>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
 
                 <div className="py-4 text-center text-[12px] text-[#848E9C]">
                   Couldn&apos;t find your token?{' '}

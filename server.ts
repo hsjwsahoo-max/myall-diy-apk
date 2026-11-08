@@ -920,6 +920,92 @@ async function startServer() {
     res.json({ ok: true, ...latest });
   });
 
+  // 2b. Live Binance 24hr Tickers & Kraken USDT/USD Proxy Endpoint (Fallback for restricted networks)
+  let marketTickersCache: {
+    tickers: any[];
+    krakenUsdtUsd: any | null;
+    updatedAt: number;
+  } = {
+    tickers: [],
+    krakenUsdtUsd: null,
+    updatedAt: 0,
+  };
+
+  app.get('/api/market/tickers', async (req, res) => {
+    const now = Date.now();
+    const force = req.query.force === '1' || req.query.force === 'true';
+    if (!force && marketTickersCache.tickers.length > 0 && now - marketTickersCache.updatedAt < 1500) {
+      return res.json({
+        ok: true,
+        cached: true,
+        ...marketTickersCache,
+      });
+    }
+
+    const symbolsParam = typeof req.query.symbols === 'string' ? req.query.symbols : '';
+    const binanceMirrors = [
+      'https://data-api.binance.vision/api/v3',
+      'https://api.binance.com/api/v3',
+      'https://api1.binance.com/api/v3',
+      'https://api2.binance.com/api/v3',
+      'https://api3.binance.com/api/v3',
+    ];
+
+    let fetchedTickers: any[] | null = null;
+    for (const base of binanceMirrors) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const pathUrl = symbolsParam
+          ? `${base}/ticker/24hr?symbols=${encodeURIComponent(symbolsParam)}`
+          : `${base}/ticker/24hr`;
+        const bRes = await fetch(pathUrl, { signal: controller.signal });
+        clearTimeout(timer);
+        if (bRes.ok) {
+          const data = await bRes.json();
+          if (Array.isArray(data) && data.length > 0) {
+            fetchedTickers = data;
+            break;
+          }
+        }
+      } catch {
+        // try next mirror
+      }
+    }
+
+    let krakenPairData: any | null = marketTickersCache.krakenUsdtUsd;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3500);
+      const kRes = await fetch('https://api.kraken.com/0/public/Ticker?pair=USDTZUSD', {
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (kRes.ok) {
+        const kj = (await kRes.json()) as any;
+        if (kj?.result?.USDTZUSD) {
+          krakenPairData = kj.result.USDTZUSD;
+        }
+      }
+    } catch {
+      // keep previous kraken snapshot if any
+    }
+
+    if (fetchedTickers) {
+      marketTickersCache = {
+        tickers: fetchedTickers,
+        krakenUsdtUsd: krakenPairData,
+        updatedAt: Date.now(),
+      };
+    }
+
+    return res.json({
+      ok: marketTickersCache.tickers.length > 0,
+      cached: false,
+      ...marketTickersCache,
+    });
+  });
+
   // 3. Get Server-Persisted Account & Ledger State
   app.get('/api/ledger/state', (_req, res) => {
     try {

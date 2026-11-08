@@ -9,6 +9,7 @@ import {
   EyeOff,
   FileText,
   Flame,
+  RefreshCw,
   ScanLine,
   Star,
 } from 'lucide-react';
@@ -50,6 +51,8 @@ export const HomeScreen: React.FC = () => {
     setExchangeTab,
     setTradeSubTab,
     setAssetsSubTab,
+    isRefreshingMarket,
+    refreshMarketData,
     showToast,
   } = useExchange();
 
@@ -197,7 +200,18 @@ export const HomeScreen: React.FC = () => {
               </button>
             </div>
 
-            <div className="flex items-baseline gap-1.5 mt-0.5 flex-wrap">
+            <div
+              onClick={() => updateSettings({ hideBalances: !settings.hideBalances })}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  updateSettings({ hideBalances: !settings.hideBalances });
+                }
+              }}
+              title={settings.hideBalances ? 'Show Balance' : 'Hide Balance'}
+              className="flex items-baseline gap-1.5 mt-0.5 flex-wrap cursor-pointer"
+            >
               <span className="nt-balance-hero">
                 {settings.hideBalances ? '******' : portfolioValuation.primaryNumberOnly}
               </span>
@@ -208,6 +222,18 @@ export const HomeScreen: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => refreshMarketData()}
+              disabled={isRefreshingMarket}
+              className="w-9 h-9 rounded-lg bg-[#202630] hover:bg-[#2B3139] text-[#EAECEF] flex items-center justify-center transition-colors disabled:opacity-60"
+              title="Refresh Market & Portfolio Data"
+              aria-label="Refresh Market & Portfolio Data"
+            >
+              <RefreshCw
+                className={`w-4 h-4 ${isRefreshingMarket ? 'animate-spin text-[#F0B90B]' : ''}`}
+              />
+            </button>
             <button
               type="button"
               onClick={() => setHistoryModalOpen(true)}
@@ -563,7 +589,15 @@ export const HomeScreen: React.FC = () => {
               </div>
             </div>
 
-            <div className="text-[19px] font-bold tabular-nums text-[#EAECEF] leading-tight mt-1.5">
+            <div
+              className={`text-[19px] font-bold tabular-nums leading-tight mt-1.5 transition-colors duration-300 ${
+                bnbTicker?.flash === 'up'
+                  ? 'text-[#2EBD85]'
+                  : bnbTicker?.flash === 'down'
+                  ? 'text-[#F6465D]'
+                  : 'text-[#EAECEF]'
+              }`}
+            >
               {bnbTicker?.lastPrice ? formatPrice(bnbTicker.lastPrice, 2) : '--'}
             </div>
 

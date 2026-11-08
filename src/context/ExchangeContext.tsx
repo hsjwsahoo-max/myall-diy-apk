@@ -1113,7 +1113,8 @@ interface ExchangeContextValue {
   getLiveUsdtUsdPrice: () => number;
   getAssetPriceUsdt: (asset: string) => number;
   getAssetPriceUsd: (asset: string) => number;
-  refreshMarketData: () => void;
+  isRefreshingMarket: boolean;
+  refreshMarketData: (silent?: boolean) => Promise<void>;
 
   // System 2: User Account & Portfolio Ledger
   wallets: WalletsState;
@@ -1300,6 +1301,8 @@ export const ExchangeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [stocks] = useState<StockTicker[]>(INITIAL_STOCKS);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [isRefreshingMarket, setIsRefreshingMarket] = useState<boolean>(false);
+  const isRefreshingMarketRef = useRef<boolean>(false);
   const [activeSymbol, setActiveSymbol] = useState<string>('BTCUSDT');
   const [activeInterval, setActiveInterval] = useState<KlineInterval>('15m');
   const [candles, setCandles] = useState<CandleData[]>([]);
@@ -1808,11 +1811,49 @@ export const ExchangeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, []);
 
-  const refreshMarketData = useCallback(() => {
-    marketService.fetchInitialTickers();
-    marketService.subscribeActivePair(activeSymbol, activeInterval);
-    showToast('Live market streams synchronized');
-  }, [activeSymbol, activeInterval, showToast]);
+  const refreshMarketData = useCallback(
+    async (silent = false) => {
+      if (isRefreshingMarketRef.current) return;
+      isRefreshingMarketRef.current = true;
+      setIsRefreshingMarket(true);
+      const startedAt = Date.now();
+      try {
+        await Promise.allSettled([
+          marketService.refreshNow(),
+          marketService.subscribeActivePair(activeSymbol, activeInterval),
+          fetch('/api/fx/rates')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((fxData) => {
+              if (fxData?.rates) {
+                updateLiveFiatRates(fxData.rates);
+                setFxProvenance({
+                  source: fxData.source || 'Live FX API',
+                  updatedAt: fxData.updatedAt || Date.now(),
+                  provenance: fxData.provenance || 'live_fx_api',
+                });
+              }
+            }),
+        ]);
+        const freshMap = marketService.getTickers();
+        if (Object.keys(freshMap).length > 0) {
+          setTickers({ ...freshMap });
+          setLastUpdated(Date.now());
+        }
+        if (!silent) {
+          showToast('Live market prices & portfolio data refreshed');
+        }
+      } finally {
+        const elapsed = Date.now() - startedAt;
+        const remaining = Math.max(0, 450 - elapsed);
+        if (remaining > 0) {
+          await new Promise((r) => setTimeout(r, remaining));
+        }
+        isRefreshingMarketRef.current = false;
+        setIsRefreshingMarket(false);
+      }
+    },
+    [activeSymbol, activeInterval, showToast]
+  );
 
   // System 3: Internal Transfer Execution
   const executeTransfer = useCallback(
@@ -3587,6 +3628,7 @@ export const ExchangeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     getLiveUsdtUsdPrice,
     getAssetPriceUsdt,
     getAssetPriceUsd,
+    isRefreshingMarket,
     refreshMarketData,
     wallets,
     transactions,

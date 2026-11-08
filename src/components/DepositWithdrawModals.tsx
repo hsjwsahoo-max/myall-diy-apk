@@ -621,11 +621,11 @@ export const DepositWithdrawModals: React.FC = () => {
       {/* 1. Select Deposit Method Bottom Sheet */}
       {isDepositMethodSheetOpen && (
         <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end justify-center"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end justify-center pt-safe-top"
           onClick={() => setDepositMethodSheetOpen(false)}
         >
           <div
-            className="w-full max-w-[430px] bg-[#1E2329] rounded-t-3xl border-t border-[#2B3139] p-5 space-y-4 pb-safe-bottom animate-in slide-in-from-bottom duration-200"
+            className="w-full max-w-[430px] max-h-[calc(100dvh-var(--safe-area-top)-16px)] overflow-y-auto bg-[#1E2329] rounded-t-3xl border-t border-[#2B3139] p-5 space-y-4 pb-safe-bottom animate-in slide-in-from-bottom duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-10 h-1 bg-[#474D57] rounded-full mx-auto -mt-1" />
@@ -1103,11 +1103,11 @@ export const DepositWithdrawModals: React.FC = () => {
       {/* 5. Transaction Detail Modal (Requirement 4) */}
       {selectedTxDetail && (
         <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 pt-safe-top"
           onClick={() => setSelectedTxDetail(null)}
         >
           <div
-            className="w-full max-w-[430px] bg-[#1E2329] rounded-t-3xl sm:rounded-3xl border-t sm:border border-[#2B3139] p-5 space-y-4 pb-safe-bottom animate-in slide-in-from-bottom duration-200"
+            className="w-full max-w-[430px] max-h-[calc(100dvh-var(--safe-area-top)-16px)] overflow-y-auto overscroll-contain bg-[#1E2329] rounded-t-3xl sm:rounded-3xl border-t sm:border border-[#2B3139] p-5 space-y-4 pb-safe-bottom animate-in slide-in-from-bottom duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-10 h-1 bg-[#474D57] rounded-full mx-auto -mt-1 sm:hidden" />

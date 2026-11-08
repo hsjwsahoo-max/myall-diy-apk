@@ -62,11 +62,14 @@ const REST_ENDPOINTS = [
   'https://data-api.binance.vision/api/v3',
   'https://api.binance.com/api/v3',
   'https://api1.binance.com/api/v3',
+  'https://api2.binance.com/api/v3',
+  'https://api3.binance.com/api/v3',
 ];
 
 const WS_ENDPOINTS = [
   'wss://data-stream.binance.vision/ws',
   'wss://stream.binance.com:9443/ws',
+  'wss://stream.binance.com:443/ws',
 ];
 
 async function fetchBinanceJson<T>(path: string): Promise<T> {
@@ -74,7 +77,7 @@ async function fetchBinanceJson<T>(path: string): Promise<T> {
   for (const base of REST_ENDPOINTS) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 7000);
+      const timeout = setTimeout(() => controller.abort(), 5500);
       const res = await fetch(`${base}${path}`, { signal: controller.signal });
       clearTimeout(timeout);
       if (!res.ok) {
@@ -108,6 +111,7 @@ export class MarketDataService {
   private restPollTimer: ReturnType<typeof setInterval> | null = null;
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
   private isDestroyed = false;
+  private refreshPromise: Promise<boolean> | null = null;
 
   private currentStatus: ConnectionStatus = 'connecting';
   private lastWsMessageAt: number | null = null;
@@ -165,13 +169,19 @@ export class MarketDataService {
     this.connectTickerStream();
     this.subscribeActivePair(this.activeSymbol, this.activeInterval);
 
-    // Periodic REST sync fallback every 12s to guarantee fresh 24hr stats & Kraken USDT/USD direct check
+    // Periodic REST sync fallback every 4s when WS is offline or 8s when WS is online
     if (this.restPollTimer) clearInterval(this.restPollTimer);
     this.restPollTimer = setInterval(() => {
-      this.fetchInitialTickers(true);
-    }, 12000);
+      if (this.isDestroyed) return;
+      const isWsOpen = this.tickerWs?.readyState === WebSocket.OPEN;
+      const now = Date.now();
+      const restAge = this.lastRestSyncAt ? now - this.lastRestSyncAt : Infinity;
+      if (!isWsOpen || restAge >= 7500) {
+        this.fetchInitialTickers(true);
+      }
+    }, 3500);
 
-    // Watchdog every 5s to detect silent WebSocket stalls and enforce accurate dataProvenance
+    // Watchdog every 4s to detect silent WebSocket stalls and enforce accurate dataProvenance
     if (this.watchdogTimer) clearInterval(this.watchdogTimer);
     this.watchdogTimer = setInterval(() => {
       if (this.isDestroyed) return;
@@ -179,13 +189,13 @@ export class MarketDataService {
       const wsSilenceMs = this.lastWsMessageAt ? now - this.lastWsMessageAt : Infinity;
       const restSilenceMs = this.lastRestSyncAt ? now - this.lastRestSyncAt : Infinity;
 
-      if (this.tickerWs?.readyState === WebSocket.OPEN && wsSilenceMs > 18000) {
+      if (this.tickerWs?.readyState === WebSocket.OPEN && wsSilenceMs > 12000) {
         // Silent WebSocket stall detected: switch to REST fallback & reconnect WebSocket
-        this.emitStatus(restSilenceMs < 30000 ? 'rest_fallback' : 'stale');
+        this.emitStatus(restSilenceMs < 25000 ? 'rest_fallback' : 'stale');
         this.fetchInitialTickers(true);
         this.connectTickerStream();
-      } else if (this.tickerWs?.readyState !== WebSocket.OPEN && restSilenceMs > 30000) {
-        // Mark tickers as delayed if neither WS nor REST has updated in 30s
+      } else if (this.tickerWs?.readyState !== WebSocket.OPEN && restSilenceMs > 25000) {
+        // Mark tickers as delayed if neither WS nor REST has updated in 25s
         let updatedAny = false;
         Object.keys(this.tickersMap).forEach((sym) => {
           const item = this.tickersMap[sym];
@@ -202,7 +212,7 @@ export class MarketDataService {
           this.onTickersCallback?.({ ...this.tickersMap }, now);
         }
       }
-    }, 5000);
+    }, 4000);
   }
 
   public stop() {
@@ -220,6 +230,66 @@ export class MarketDataService {
       this.pairWs.onclose = null;
       this.pairWs.close();
       this.pairWs = null;
+    }
+  }
+
+  private applyAggTradeTick(binanceSym: string, tradePrice: number, now: number) {
+    if (!Number.isFinite(tradePrice) || tradePrice <= 0) return;
+    const matchingMetas = TRACKED_COINS.filter((c) => c.binanceSymbol === binanceSym);
+    let updatedAny = false;
+
+    for (const meta of matchingMetas) {
+      const existing = this.tickersMap[meta.symbol];
+      if (!existing) continue;
+
+      if (meta.invertPrice) {
+        const nextPrice = Number((1 / tradePrice).toFixed(5));
+        if (nextPrice <= 0 || nextPrice === existing.lastPrice) continue;
+        const openPrice = existing.lastPrice - existing.priceChange;
+        const priceChange = openPrice > 0 ? Number((nextPrice - openPrice).toFixed(5)) : existing.priceChange;
+        const priceChangePercent =
+          openPrice > 0 ? Number(((priceChange / openPrice) * 100).toFixed(3)) : existing.priceChangePercent;
+        const flash: 'up' | 'down' = nextPrice > existing.lastPrice ? 'up' : 'down';
+
+        this.tickersMap[meta.symbol] = {
+          ...existing,
+          lastPrice: nextPrice,
+          priceChange,
+          priceChangePercent,
+          high24h: Math.max(existing.high24h, nextPrice),
+          low24h: existing.low24h > 0 ? Math.min(existing.low24h, nextPrice) : nextPrice,
+          marketCap: nextPrice * meta.circulatingSupply,
+          lastUpdated: now,
+          flash,
+          dataProvenance: 'live_ws',
+        };
+        updatedAny = true;
+      } else {
+        if (tradePrice === existing.lastPrice) continue;
+        const openPrice = existing.lastPrice - existing.priceChange;
+        const priceChange = openPrice > 0 ? tradePrice - openPrice : existing.priceChange;
+        const priceChangePercent =
+          openPrice > 0 ? Number(((priceChange / openPrice) * 100).toFixed(3)) : existing.priceChangePercent;
+        const flash: 'up' | 'down' = tradePrice > existing.lastPrice ? 'up' : 'down';
+
+        this.tickersMap[meta.symbol] = {
+          ...existing,
+          lastPrice: tradePrice,
+          priceChange,
+          priceChangePercent,
+          high24h: Math.max(existing.high24h, tradePrice),
+          low24h: existing.low24h > 0 ? Math.min(existing.low24h, tradePrice) : tradePrice,
+          marketCap: tradePrice * meta.circulatingSupply,
+          lastUpdated: now,
+          flash,
+          dataProvenance: 'live_ws',
+        };
+        updatedAny = true;
+      }
+    }
+
+    if (updatedAny) {
+      this.onTickersCallback?.({ ...this.tickersMap }, now);
     }
   }
 
@@ -242,24 +312,27 @@ export class MarketDataService {
     const matchingMetas = TRACKED_COINS.filter((c) => c.binanceSymbol === binanceSym);
     for (const meta of matchingMetas) {
       if (meta.invertPrice) {
-        // If Kraken's direct USDT/USD feed synced within the last 35s, do not overwrite USDTUSD with USDCUSDT's volume/price
-        if (
-          meta.symbol === 'USDTUSD' &&
-          this.lastKrakenSyncAt &&
-          now - this.lastKrakenSyncAt < 35000 &&
-          this.tickersMap['USDTUSD']?.lastPrice > 0
-        ) {
-          continue;
-        }
-
         const safeLast = Number((1 / raw.lastPrice).toFixed(5));
         const safeHigh = raw.low24h > 0 ? Number((1 / raw.low24h).toFixed(5)) : safeLast;
         const safeLow = raw.high24h > 0 ? Number((1 / raw.high24h).toFixed(5)) : safeLast;
         const changePct = Number((-raw.priceChangePercent).toFixed(3));
         const changeAbs = Number((safeLast * (changePct / 100)).toFixed(5));
-        const prevPrice = this.tickersMap[meta.symbol]?.lastPrice;
+        const prev = this.tickersMap[meta.symbol];
+        const prevPrice = prev?.lastPrice;
         const flash =
-          prevPrice && safeLast !== prevPrice ? (safeLast > prevPrice ? 'up' : 'down') : null;
+          prevPrice && safeLast !== prevPrice
+            ? safeLast > prevPrice
+              ? 'up'
+              : 'down'
+            : prev?.flash || null;
+
+        // Preserve Kraken's direct 24h volume if synced recently, while updating live tick price & 24h %
+        const keepKrakenVolume =
+          meta.symbol === 'USDTUSD' &&
+          this.lastKrakenSyncAt &&
+          now - this.lastKrakenSyncAt < 60000 &&
+          prev &&
+          prev.volume24h > 0;
 
         this.tickersMap[meta.symbol] = {
           symbol: meta.symbol,
@@ -269,10 +342,10 @@ export class MarketDataService {
           lastPrice: safeLast,
           priceChange: changeAbs,
           priceChangePercent: changePct,
-          high24h: Math.max(safeHigh, safeLast),
-          low24h: Math.min(safeLow, safeLast),
-          volume24h: raw.quoteVolume24h,
-          quoteVolume24h: raw.quoteVolume24h,
+          high24h: Math.max(keepKrakenVolume ? prev.high24h : safeHigh, safeLast),
+          low24h: Math.min(keepKrakenVolume ? prev.low24h : safeLow, safeLast),
+          volume24h: keepKrakenVolume ? prev.volume24h : raw.quoteVolume24h,
+          quoteVolume24h: keepKrakenVolume ? prev.quoteVolume24h : raw.quoteVolume24h,
           marketCap: safeLast * meta.circulatingSupply,
           category: meta.category,
           leverageTag: meta.leverageTag,
@@ -286,13 +359,14 @@ export class MarketDataService {
           isNewListing: meta.isNewListing,
         };
       } else {
-        const prevPrice = this.tickersMap[meta.symbol]?.lastPrice;
+        const prev = this.tickersMap[meta.symbol];
+        const prevPrice = prev?.lastPrice;
         const flash =
           prevPrice && raw.lastPrice !== prevPrice
             ? raw.lastPrice > prevPrice
               ? 'up'
               : 'down'
-            : null;
+            : prev?.flash || null;
 
         this.tickersMap[meta.symbol] = {
           symbol: meta.symbol,
@@ -319,11 +393,59 @@ export class MarketDataService {
     }
   }
 
-  public async fetchInitialTickers(isBackgroundPoll = false) {
+  public async refreshNow(): Promise<boolean> {
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+    this.refreshPromise = (async () => {
+      try {
+        const ok = await this.fetchInitialTickers(false, true);
+        if (this.tickerWs?.readyState !== WebSocket.OPEN) {
+          this.connectTickerStream();
+        }
+        await Promise.allSettled([
+          this.fetchOrderBookSnapshot(this.activeSymbol),
+          this.fetchRecentTradesSnapshot(this.activeSymbol),
+        ]);
+        return ok;
+      } finally {
+        this.refreshPromise = null;
+      }
+    })();
+    return this.refreshPromise;
+  }
+
+  public async fetchInitialTickers(isBackgroundPoll = false, forceServerRefresh = false): Promise<boolean> {
     try {
       const uniqueBinanceSymbols = Array.from(new Set(TRACKED_COINS.map((c) => c.binanceSymbol)));
-      const symbolsParam = encodeURIComponent(JSON.stringify(uniqueBinanceSymbols));
-      const data = await fetchBinanceJson<any[]>(`/ticker/24hr?symbols=${symbolsParam}`);
+      const symbolsJson = JSON.stringify(uniqueBinanceSymbols);
+      const symbolsParam = encodeURIComponent(symbolsJson);
+
+      let data: any[] | null = null;
+      let serverKrakenPair: any | null = null;
+
+      try {
+        data = await fetchBinanceJson<any[]>(`/ticker/24hr?symbols=${symbolsParam}`);
+      } catch {
+        // Fallback to server-side proxy so mobile ISP blocks never freeze market prices
+        const proxyRes = await fetch(
+          `/api/market/tickers?symbols=${symbolsParam}${forceServerRefresh ? '&force=1' : ''}`
+        );
+        if (proxyRes.ok) {
+          const pj = await proxyRes.json();
+          if (Array.isArray(pj?.tickers) && pj.tickers.length > 0) {
+            data = pj.tickers;
+          }
+          if (pj?.krakenUsdtUsd) {
+            serverKrakenPair = pj.krakenUsdtUsd;
+          }
+        }
+      }
+
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        throw new Error('Empty ticker response');
+      }
+
       const now = Date.now();
       this.lastRestSyncAt = now;
       const isWsOpen = this.tickerWs?.readyState === WebSocket.OPEN;
@@ -348,42 +470,61 @@ export class MarketDataService {
 
       // Direct Kraken USDTZUSD public ticker for accurate USDT/USD spot pricing & volume
       try {
-        const krakenRes = await fetch('https://api.kraken.com/0/public/Ticker?pair=USDTZUSD');
-        if (krakenRes.ok) {
-          const kj = await krakenRes.json();
-          const pairData = kj?.result?.USDTZUSD;
-          if (pairData && pairData.c?.[0]) {
-            const kLast = parseFloat(pairData.c[0]);
-            const kOpen = parseFloat(pairData.o || pairData.c[0]);
-            const kHigh = parseFloat(pairData.h?.[1] || pairData.c[0]);
-            const kLow = parseFloat(pairData.l?.[1] || pairData.c[0]);
-            const kVol = parseFloat(pairData.v?.[1] || '0');
-            if (kLast > 0.95 && kLast < 1.05) {
-              this.lastKrakenSyncAt = now;
-              const kChange = kLast - kOpen;
-              const kChangePct = kOpen > 0 ? (kChange / kOpen) * 100 : 0;
-              const usdtMeta = TRACKED_COINS.find((c) => c.symbol === 'USDTUSD')!;
-              const prevPrice = this.tickersMap['USDTUSD']?.lastPrice;
-              this.tickersMap['USDTUSD'] = {
-                symbol: 'USDTUSD',
-                baseAsset: 'USDT',
-                quoteAsset: 'USD',
-                name: 'TetherUS',
-                lastPrice: kLast,
-                priceChange: Number(kChange.toFixed(5)),
-                priceChangePercent: Number(kChangePct.toFixed(3)),
-                high24h: kHigh,
-                low24h: kLow,
-                volume24h: kVol,
-                quoteVolume24h: kVol * kLast,
-                marketCap: kLast * usdtMeta.circulatingSupply,
-                category: 'Stablecoin',
-                lastUpdated: now,
-                flash: prevPrice && kLast !== prevPrice ? (kLast > prevPrice ? 'up' : 'down') : null,
-                dataProvenance: isWsOpen ? 'live_ws' : 'live_rest',
-                feedSource: 'Kraken Direct USDT/USD Live REST',
-              };
-            }
+        let pairData = serverKrakenPair;
+        if (!pairData) {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 3500);
+          const krakenRes = await fetch('https://api.kraken.com/0/public/Ticker?pair=USDTZUSD', {
+            signal: controller.signal,
+          });
+          clearTimeout(timer);
+          if (krakenRes.ok) {
+            const kj = await krakenRes.json();
+            pairData = kj?.result?.USDTZUSD;
+          }
+        }
+        if (pairData && pairData.c?.[0]) {
+          const kLast = parseFloat(pairData.c[0]);
+          const kOpen = parseFloat(pairData.o || pairData.c[0]);
+          const kHigh = parseFloat(pairData.h?.[1] || pairData.c[0]);
+          const kLow = parseFloat(pairData.l?.[1] || pairData.c[0]);
+          const kVol = parseFloat(pairData.v?.[1] || '0');
+          if (kLast > 0.95 && kLast < 1.05) {
+            this.lastKrakenSyncAt = now;
+            const kChange = kLast - kOpen;
+            const kChangePct = kOpen > 0 ? (kChange / kOpen) * 100 : 0;
+            const usdtMeta = TRACKED_COINS.find((c) => c.symbol === 'USDTUSD')!;
+            const prev = this.tickersMap['USDTUSD'];
+            const prevPrice = prev?.lastPrice;
+            // Combine Kraken spot price with live Binance USDCUSDT inverse micro-movements if Kraken hasn't ticked
+            const binanceInverse = prevPrice && Math.abs(prevPrice - kLast) < 0.002 ? prevPrice : kLast;
+            const effectiveLast = prevPrice === kLast && prev ? binanceInverse : kLast;
+            this.tickersMap['USDTUSD'] = {
+              symbol: 'USDTUSD',
+              baseAsset: 'USDT',
+              quoteAsset: 'USD',
+              name: 'TetherUS',
+              lastPrice: effectiveLast,
+              priceChange: Number(kChange.toFixed(5)),
+              priceChangePercent: Number(
+                (kChangePct !== 0 ? kChangePct : prev?.priceChangePercent || 0).toFixed(3)
+              ),
+              high24h: kHigh,
+              low24h: kLow,
+              volume24h: kVol,
+              quoteVolume24h: kVol * effectiveLast,
+              marketCap: effectiveLast * usdtMeta.circulatingSupply,
+              category: 'Stablecoin',
+              lastUpdated: now,
+              flash:
+                prevPrice && effectiveLast !== prevPrice
+                  ? effectiveLast > prevPrice
+                    ? 'up'
+                    : 'down'
+                  : prev?.flash || null,
+              dataProvenance: isWsOpen ? 'live_ws' : 'live_rest',
+              feedSource: 'Kraken Direct USDT/USD + Binance Live Stream',
+            };
           }
         }
       } catch {
@@ -394,12 +535,14 @@ export class MarketDataService {
       if (this.tickerWs?.readyState !== WebSocket.OPEN) {
         this.emitStatus('rest_fallback');
       }
+      return true;
     } catch {
       if (!isBackgroundPoll && Object.keys(this.tickersMap).length === 0) {
         this.emitStatus('error');
       } else if (this.tickerWs?.readyState !== WebSocket.OPEN) {
         this.emitStatus('stale');
       }
+      return false;
     }
   }
 
@@ -417,7 +560,9 @@ export class MarketDataService {
     }
 
     const uniqueBinanceSymbols = Array.from(new Set(TRACKED_COINS.map((c) => c.binanceSymbol)));
-    const streams = uniqueBinanceSymbols.map((s) => `${s.toLowerCase()}@ticker`).join('/');
+    const tickerStreams = uniqueBinanceSymbols.map((s) => `${s.toLowerCase()}@ticker`);
+    const aggTradeStreams = uniqueBinanceSymbols.map((s) => `${s.toLowerCase()}@aggTrade`);
+    const streams = [...tickerStreams, ...aggTradeStreams].join('/');
     const wsBase = WS_ENDPOINTS[this.wsEndpointIndex % WS_ENDPOINTS.length];
     const url = `${wsBase.replace('/ws', '/stream')}?streams=${streams}`;
 
@@ -445,22 +590,29 @@ export class MarketDataService {
             this.emitStatus('connected');
           }
 
-          this.applyRawBinanceTicker(
-            d.s,
-            {
-              lastPrice: parseFloat(d.c),
-              priceChange: parseFloat(d.p),
-              priceChangePercent: parseFloat(d.P),
-              high24h: parseFloat(d.h),
-              low24h: parseFloat(d.l),
-              volume24h: parseFloat(d.v),
-              quoteVolume24h: parseFloat(d.q),
-            },
-            now,
-            'live_ws'
-          );
+          if (d.e === 'aggTrade' && d.p) {
+            this.applyAggTradeTick(d.s, parseFloat(d.p), now);
+            return;
+          }
 
-          this.onTickersCallback?.({ ...this.tickersMap }, now);
+          if (d.c !== undefined) {
+            this.applyRawBinanceTicker(
+              d.s,
+              {
+                lastPrice: parseFloat(d.c),
+                priceChange: parseFloat(d.p),
+                priceChangePercent: parseFloat(d.P),
+                high24h: parseFloat(d.h),
+                low24h: parseFloat(d.l),
+                volume24h: parseFloat(d.v),
+                quoteVolume24h: parseFloat(d.q),
+              },
+              now,
+              'live_ws'
+            );
+
+            this.onTickersCallback?.({ ...this.tickersMap }, now);
+          }
         } catch {
           // ignore malformed frame
         }
@@ -475,13 +627,13 @@ export class MarketDataService {
         if (this.isDestroyed) return;
         this.reconnectAttempts += 1;
         this.emitStatus(this.lastRestSyncAt ? 'rest_fallback' : 'reconnecting');
-        const backoffMs = Math.min(12000, 1500 * Math.pow(1.6, Math.min(5, this.reconnectAttempts)));
+        const backoffMs = Math.min(10000, 1200 * Math.pow(1.5, Math.min(5, this.reconnectAttempts)));
         this.tickerReconnectTimer = setTimeout(() => this.connectTickerStream(), backoffMs);
       };
     } catch {
       this.reconnectAttempts += 1;
       this.emitStatus('rest_fallback');
-      this.tickerReconnectTimer = setTimeout(() => this.connectTickerStream(), 4000);
+      this.tickerReconnectTimer = setTimeout(() => this.connectTickerStream(), 3000);
     }
   }
 

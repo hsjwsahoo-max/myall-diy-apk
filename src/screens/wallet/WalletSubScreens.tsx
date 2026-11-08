@@ -262,12 +262,12 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
 
     return (
       <div
-        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-0 sm:p-4"
+        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-0 sm:p-4 pt-safe-top"
         onClick={() => setSelectedPreviewSampleEntry(null)}
       >
         <div
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-[430px] bg-[#1E2329] rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#2B3139] p-5 pb-8 sm:pb-5 space-y-4 animate-in slide-in-from-bottom duration-200"
+          className="w-full max-w-[430px] max-h-[calc(100dvh-var(--safe-area-top)-16px)] overflow-y-auto overscroll-contain bg-[#1E2329] rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#2B3139] p-5 pb-8 sm:pb-5 pb-safe-bottom space-y-4 animate-in slide-in-from-bottom duration-200"
         >
           <div className="w-9 h-1 rounded-full bg-[#474D57] mx-auto -mt-1 mb-1 sm:hidden" />
 
@@ -360,25 +360,27 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
     const isUp24h = valuation.usdt24hChangePct >= 0;
 
     return (
-      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto select-none">
+      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto overscroll-contain select-none pb-safe-bottom">
         {/* Top Bar: <- Back | [USDT Icon] USDT */}
-        <div className="sticky top-0 z-20 bg-[#181A20] px-4 h-12 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => setSubScreen('main')}
-            className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B] transition-colors"
-            aria-label="Back to Assets"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <CoinIcon asset="USDT" size="sm" />
-              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#F0B90B] border border-[#181A20]" />
+        <div className="sticky top-0 z-20 shrink-0 bg-[#181A20] pt-safe-top">
+          <div className="px-4 h-12 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setSubScreen('main')}
+              className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B] transition-colors"
+              aria-label="Back to Assets"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <CoinIcon asset="USDT" size="sm" />
+                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#F0B90B] border border-[#181A20]" />
+              </div>
+              <span className="text-[17px] font-bold text-[#EAECEF]">USDT</span>
             </div>
-            <span className="text-[17px] font-bold text-[#EAECEF]">USDT</span>
+            <div className="w-7" />
           </div>
-          <div className="w-7" />
         </div>
 
         {/* Network Tabs: BNB Smart Chain | Ethereum | Solana | opBNB v */}
@@ -418,7 +420,11 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
             </button>
           </div>
 
-          <div className="mt-1">
+          <div
+            onClick={() => setHideBalance(!hideBalance)}
+            className="mt-1 cursor-pointer"
+            title={hideBalance ? 'Show Balance' : 'Hide Balance'}
+          >
             <div className="text-[32px] leading-[38px] font-bold text-[#EAECEF] tabular-nums">
               {hideBalance ? '******' : formatQuantity(netQty)}
             </div>
@@ -686,25 +692,27 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
             setSubScreen('main');
             onNavigateWalletTab('markets');
           }}
-          className="fixed bottom-0 inset-x-0 z-30 bg-[#181A20] border-t border-[#2B3139] px-4 h-12 pb-safe-bottom flex items-center justify-between cursor-pointer hover:bg-[#202630]/60"
+          className="fixed bottom-0 inset-x-0 z-30 bg-[#181A20] border-t border-[#2B3139] pb-safe-bottom cursor-pointer hover:bg-[#202630]/60"
         >
-          <div className="flex items-center gap-2">
-            <CoinIcon asset="USDT" size="sm" />
-            <span className="text-[14px] font-bold text-[#EAECEF]">USDT</span>
-          </div>
-          <div className="flex items-center gap-2 tabular-nums">
-            <span className="text-[13px] font-semibold text-[#EAECEF]">
-              {valuation.usdtUsdPrice.toFixed(5)}
-            </span>
-            <span
-              className={`text-[13px] font-semibold ${
-                isUp24h ? 'text-[#0ECB81]' : 'text-[#F6465D]'
-              }`}
-            >
-              {isUp24h ? '+' : ''}
-              {valuation.usdt24hChangePct.toFixed(2)}%
-            </span>
-            <ChevronRight size={15} className="text-[#848E9C]" />
+          <div className="px-4 h-12 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CoinIcon asset="USDT" size="sm" />
+              <span className="text-[14px] font-bold text-[#EAECEF]">USDT</span>
+            </div>
+            <div className="flex items-center gap-2 tabular-nums">
+              <span className="text-[13px] font-semibold text-[#EAECEF]">
+                {valuation.usdtUsdPrice.toFixed(5)}
+              </span>
+              <span
+                className={`text-[13px] font-semibold ${
+                  isUp24h ? 'text-[#0ECB81]' : 'text-[#F6465D]'
+                }`}
+              >
+                {isUp24h ? '+' : ''}
+                {valuation.usdt24hChangePct.toFixed(2)}%
+              </span>
+              <ChevronRight size={15} className="text-[#848E9C]" />
+            </div>
           </div>
         </div>
       </div>
@@ -716,37 +724,53 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
   // =========================================================================
   if (subScreen === 'portfolio') {
     return (
-      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto select-none">
-        <div className="sticky top-0 z-20 bg-[#181A20] px-4 h-12 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => setSubScreen('main')}
-            className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <span className="text-[17px] font-bold text-[#EAECEF]">Portfolio</span>
-          <div className="flex items-center gap-2">
+      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto overscroll-contain select-none pb-safe-bottom">
+        <div className="sticky top-0 z-20 shrink-0 bg-[#181A20] pt-safe-top">
+          <div className="px-4 h-12 flex items-center justify-between">
             <button
               type="button"
-              onClick={() => setSubScreen('approvals')}
-              className="p-1.5 text-[#848E9C] hover:text-[#EAECEF]"
+              onClick={() => setSubScreen('main')}
+              className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
             >
-              <ShieldCheck size={18} />
+              <ArrowLeft size={20} />
             </button>
-            <button
-              type="button"
-              onClick={() => setSubScreen('my_wallets')}
-              className="p-1.5 text-[#848E9C] hover:text-[#EAECEF]"
-            >
-              <Wallet size={18} />
-            </button>
+            <span className="text-[17px] font-bold text-[#EAECEF]">Portfolio</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSubScreen('approvals')}
+                className="p-1.5 text-[#848E9C] hover:text-[#EAECEF]"
+              >
+                <ShieldCheck size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubScreen('my_wallets')}
+                className="p-1.5 text-[#848E9C] hover:text-[#EAECEF]"
+              >
+                <Wallet size={18} />
+              </button>
+            </div>
           </div>
         </div>
 
         <div className="px-4 pt-3 pb-2">
-          <div className="text-[12px] text-[#848E9C]">Est. Total Value</div>
-          <div className="text-[28px] font-bold text-[#EAECEF] tabular-nums mt-0.5">
+          <div className="flex items-center gap-1.5 text-[12px] text-[#848E9C]">
+            <span>Est. Total Value</span>
+            <button
+              type="button"
+              onClick={() => setHideBalance(!hideBalance)}
+              className="text-[#848E9C] hover:text-[#EAECEF] cursor-pointer"
+              title={hideBalance ? 'Show Balance' : 'Hide Balance'}
+            >
+              {hideBalance ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+          <div
+            onClick={() => setHideBalance(!hideBalance)}
+            className="text-[28px] font-bold text-[#EAECEF] tabular-nums mt-0.5 cursor-pointer"
+            title={hideBalance ? 'Show Balance' : 'Hide Balance'}
+          >
             {hideBalance ? '******' : formatInrValue(displayedInrTotal)}
           </div>
         </div>
@@ -811,7 +835,7 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
               <div className="flex items-center justify-between text-[13px] text-[#848E9C] pb-2 border-b border-[#2B3139]/60">
                 <span>Total (1)</span>
                 <span className="font-bold text-[#EAECEF] tabular-nums">
-                  {formatInrValue(displayedInrTotal)}
+                  {hideBalance ? '******' : formatInrValue(displayedInrTotal)}
                 </span>
               </div>
 
@@ -838,10 +862,10 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
                 </div>
                 <div className="text-right tabular-nums">
                   <div className="text-[15px] font-bold text-[#EAECEF]">
-                    {formatQuantity(displayedUsdtQty)}
+                    {hideBalance ? '******' : formatQuantity(displayedUsdtQty)}
                   </div>
                   <div className="text-[12px] text-[#848E9C]">
-                    {formatInrValue(displayedInrTotal)}
+                    {hideBalance ? '******' : formatInrValue(displayedInrTotal)}
                   </div>
                 </div>
               </div>
@@ -879,23 +903,26 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
       : 0;
 
     return (
-      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto select-none">
-        <div className="sticky top-0 z-20 bg-[#181A20] px-4 h-12 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => {
-              if (sendStep === 'form') {
-                setSendStep('menu');
-              } else {
-                setSubScreen('main');
-              }
-            }}
-            className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <span className="text-[17px] font-bold text-[#EAECEF]">Send Token</span>
-          <div className="w-7" />
+      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto overscroll-contain select-none pb-safe-bottom">
+        <div className="sticky top-0 z-20 shrink-0 bg-[#181A20] pt-safe-top">
+          <div className="px-4 h-12 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => {
+                if (sendStep === 'form') {
+                  setSendStep('menu');
+                } else {
+                  setSubScreen('main');
+                }
+              }}
+              className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
+              aria-label="Back"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <span className="text-[17px] font-bold text-[#EAECEF]">Send Token</span>
+            <div className="w-7" />
+          </div>
         </div>
 
         {sendStep === 'menu' ? (
@@ -1110,23 +1137,26 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
     const displayAddr = activeReceiveAddress || '0x71C95911E9a5D330f4D621842EC243EE134319A3';
 
     return (
-      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto select-none">
-        <div className="sticky top-0 z-20 bg-[#181A20] px-4 h-12 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => {
-              if (receiveStep === 'qr') {
-                setReceiveStep('menu');
-              } else {
-                setSubScreen('main');
-              }
-            }}
-            className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <span className="text-[17px] font-bold text-[#EAECEF]">Receive Tokens</span>
-          <div className="w-7" />
+      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto overscroll-contain select-none pb-safe-bottom">
+        <div className="sticky top-0 z-20 shrink-0 bg-[#181A20] pt-safe-top">
+          <div className="px-4 h-12 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => {
+                if (receiveStep === 'qr') {
+                  setReceiveStep('menu');
+                } else {
+                  setSubScreen('main');
+                }
+              }}
+              className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
+              aria-label="Back"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <span className="text-[17px] font-bold text-[#EAECEF]">Receive Tokens</span>
+            <div className="w-7" />
+          </div>
         </div>
 
         {receiveStep === 'menu' ? (
@@ -1323,21 +1353,23 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
     )[] = ['All Networks', 'BNB Smart Chain', 'Ethereum', 'Solana', 'opBNB'];
 
     return (
-      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto select-none">
+      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto overscroll-contain select-none pb-safe-bottom">
         {renderSampleEntryDetailModal()}
 
         {/* Top Header: <- Back | History (Matches frame_032.jpg) */}
-        <div className="sticky top-0 z-20 shrink-0 bg-[#181A20] px-4 h-12 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => setSubScreen('main')}
-            className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B] transition-colors"
-            aria-label="Back"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <span className="text-[17px] font-bold text-[#EAECEF]">History</span>
-          <div className="w-7" />
+        <div className="sticky top-0 z-20 shrink-0 bg-[#181A20] pt-safe-top">
+          <div className="px-4 h-12 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setSubScreen('main')}
+              className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B] transition-colors"
+              aria-label="Back"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <span className="text-[17px] font-bold text-[#EAECEF]">History</span>
+            <div className="w-7" />
+          </div>
         </div>
 
         {/* Search Input: Token symbol or contract address (Matches frame_032.jpg) */}
@@ -1634,23 +1666,26 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
   // =========================================================================
   if (subScreen === 'approvals') {
     return (
-      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto select-none">
-        <div className="sticky top-0 z-20 bg-[#181A20] px-4 h-12 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => setSubScreen('main')}
-            className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <span className="text-[17px] font-bold text-[#EAECEF]">Approvals</span>
-          <button
-            type="button"
-            onClick={() => showToast('No active high-risk token approvals to revoke')}
-            className="text-[13px] font-semibold text-[#926F18] hover:text-[#F0B90B] transition-colors"
-          >
-            Batch Revoke
-          </button>
+      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto overscroll-contain select-none pb-safe-bottom">
+        <div className="sticky top-0 z-20 shrink-0 bg-[#181A20] pt-safe-top">
+          <div className="px-4 h-12 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setSubScreen('main')}
+              className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
+              aria-label="Back"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <span className="text-[17px] font-bold text-[#EAECEF]">Approvals</span>
+            <button
+              type="button"
+              onClick={() => showToast('No active high-risk token approvals to revoke')}
+              className="text-[13px] font-semibold text-[#926F18] hover:text-[#F0B90B] transition-colors"
+            >
+              Batch Revoke
+            </button>
+          </div>
         </div>
 
         {/* Filter Bar: All Wallets v | All Protocols v | All Networks v | [Filter] */}
@@ -1757,15 +1792,18 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
   // =========================================================================
   if (subScreen === 'settings') {
     return (
-      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto select-none">
-        <div className="sticky top-0 z-20 bg-[#181A20] px-4 h-12 flex items-center">
-          <button
-            type="button"
-            onClick={() => setSubScreen('main')}
-            className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
-          >
-            <ArrowLeft size={20} />
-          </button>
+      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto overscroll-contain select-none pb-safe-bottom">
+        <div className="sticky top-0 z-20 shrink-0 bg-[#181A20] pt-safe-top">
+          <div className="px-4 h-12 flex items-center">
+            <button
+              type="button"
+              onClick={() => setSubScreen('main')}
+              className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
+              aria-label="Back"
+            >
+              <ArrowLeft size={20} />
+            </button>
+          </div>
         </div>
 
         <div className="px-4 pb-10 space-y-6">
@@ -1919,36 +1957,54 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
   // =========================================================================
   if (subScreen === 'my_wallets') {
     return (
-      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto select-none">
-        <div className="sticky top-0 z-20 bg-[#181A20] px-4 h-12 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => setSubScreen('main')}
-            className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <span className="text-[17px] font-bold text-[#EAECEF]">My Wallets</span>
-          <button
-            type="button"
-            onClick={() => setShowAddWalletSheet(true)}
-            className="text-[14px] font-semibold text-[#F0B90B]"
-          >
-            Manage
-          </button>
+      <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto overscroll-contain select-none pb-safe-bottom">
+        <div className="sticky top-0 z-20 shrink-0 bg-[#181A20] pt-safe-top">
+          <div className="px-4 h-12 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setSubScreen('main')}
+              className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
+              aria-label="Back"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <span className="text-[17px] font-bold text-[#EAECEF]">My Wallets</span>
+            <button
+              type="button"
+              onClick={() => setShowAddWalletSheet(true)}
+              className="text-[14px] font-semibold text-[#F0B90B]"
+            >
+              Manage
+            </button>
+          </div>
         </div>
 
         <div className="px-4 pt-3 pb-24 flex-1 space-y-5">
           {/* Top Portfolio Summary (Matches frame_098.jpg) */}
-          <div
-            onClick={() => setSubScreen('portfolio')}
-            className="pb-4 border-b border-[#2B3139]/80 cursor-pointer"
-          >
-            <div className="flex items-center gap-1 text-[12px] text-[#848E9C]">
-              <span>Portfolio</span>
-              <ChevronRight size={13} />
+          <div className="pb-4 border-b border-[#2B3139]/80">
+            <div className="flex items-center gap-1.5 text-[12px] text-[#848E9C]">
+              <button
+                type="button"
+                onClick={() => setSubScreen('portfolio')}
+                className="flex items-center gap-1 hover:text-[#EAECEF] cursor-pointer"
+              >
+                <span>Portfolio</span>
+                <ChevronRight size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setHideBalance(!hideBalance)}
+                className="text-[#848E9C] hover:text-[#EAECEF] p-0.5 cursor-pointer"
+                title={hideBalance ? 'Show Balance' : 'Hide Balance'}
+              >
+                {hideBalance ? <EyeOff size={13} /> : <Eye size={13} />}
+              </button>
             </div>
-            <div className="text-[28px] font-bold text-[#EAECEF] tabular-nums mt-0.5">
+            <div
+              onClick={() => setHideBalance(!hideBalance)}
+              className="text-[28px] font-bold text-[#EAECEF] tabular-nums mt-0.5 cursor-pointer"
+              title={hideBalance ? 'Show Balance' : 'Hide Balance'}
+            >
               {hideBalance ? '******' : formatInrValue(displayedInrTotal)}
             </div>
           </div>
@@ -1975,7 +2031,7 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
                       <KeylessCheckBadge />
                     </div>
                     <div className="text-[13px] text-[#848E9C] tabular-nums">
-                      {formatInrValue(displayedInrTotal)}
+                      {hideBalance ? '******' : formatInrValue(displayedInrTotal)}
                     </div>
                   </div>
                 </div>
@@ -2044,12 +2100,12 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
         {/* Add Wallet Action Sheet (Create / Import / Connect Extension) */}
         {showAddWalletSheet && (
           <div
-            className="fixed inset-0 z-50 bg-black/75 backdrop-blur-[2px] flex items-end justify-center"
+            className="fixed inset-0 z-50 bg-black/75 backdrop-blur-[2px] flex items-end justify-center pt-safe-top"
             onClick={() => setShowAddWalletSheet(false)}
           >
             <div
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-[430px] bg-[#1E2329] rounded-t-3xl p-5 pb-8 space-y-3"
+              className="w-full max-w-[430px] max-h-[calc(100dvh-var(--safe-area-top)-16px)] overflow-y-auto bg-[#1E2329] rounded-t-3xl p-5 pb-8 pb-safe-bottom space-y-3"
             >
               <div className="w-9 h-1 rounded-full bg-[#474D57] mx-auto -mt-1 mb-2" />
               <div className="text-[16px] font-bold text-[#EAECEF] mb-2">Add or Connect Wallet</div>
@@ -2136,23 +2192,27 @@ export const WalletSubScreens: React.FC<WalletSubScreensProps> = ({
   // 9. NETWORK SELECTION (Full-Screen Multi-Chain Network Selector)
   // =========================================================================
   return (
-    <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto select-none">
-      <div className="sticky top-0 z-20 bg-[#181A20] px-4 h-12 flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => setSubScreen('main')}
-          className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <span className="text-[17px] font-bold text-[#EAECEF]">Select Network</span>
-        <button
-          type="button"
-          onClick={onRefreshOnChain}
-          className="p-1.5 text-[#848E9C] hover:text-[#EAECEF]"
-        >
-          <RefreshCw size={16} className={isRefreshingBalances ? 'animate-spin text-[#F0B90B]' : ''} />
-        </button>
+    <div className="fixed inset-0 z-40 bg-[#181A20] text-[#EAECEF] flex flex-col overflow-y-auto overscroll-contain select-none pb-safe-bottom">
+      <div className="sticky top-0 z-20 shrink-0 bg-[#181A20] pt-safe-top">
+        <div className="px-4 h-12 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setSubScreen('main')}
+            className="p-1.5 -ml-1.5 text-[#EAECEF] hover:text-[#F0B90B]"
+            aria-label="Back"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <span className="text-[17px] font-bold text-[#EAECEF]">Select Network</span>
+          <button
+            type="button"
+            onClick={onRefreshOnChain}
+            className="p-1.5 text-[#848E9C] hover:text-[#EAECEF]"
+            aria-label="Refresh Networks"
+          >
+            <RefreshCw size={16} className={isRefreshingBalances ? 'animate-spin text-[#F0B90B]' : ''} />
+          </button>
+        </div>
       </div>
 
       <div className="p-4 space-y-2.5 pb-20">

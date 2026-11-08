@@ -114,6 +114,8 @@ export const AssetsScreen: React.FC = () => {
     switchAccountVerificationMode,
     syncReadOnlyExchangeApi,
     resetDemoLedger,
+    isRefreshingMarket,
+    refreshMarketData,
   } = useExchange();
 
   const [overviewListTab, setOverviewListTab] = useState<'Crypto' | 'Account'>('Crypto');
@@ -163,7 +165,15 @@ export const AssetsScreen: React.FC = () => {
   };
 
   const getPriceChangePercent = (asset: string): number => {
-    if (asset === 'USDT' || asset === 'USDC') return 0.01;
+    if (asset === 'USDT') {
+      const usdtDirect = tickers['USDTUSD']?.priceChangePercent;
+      if (typeof usdtDirect === 'number' && Number.isFinite(usdtDirect)) return usdtDirect;
+      const usdcInv = tickers['USDCUSDT']?.priceChangePercent;
+      return typeof usdcInv === 'number' && Number.isFinite(usdcInv) ? -usdcInv : 0;
+    }
+    if (asset === 'USDC') {
+      return tickers['USDCUSDT']?.priceChangePercent ?? 0;
+    }
     const t = tickers[`${asset}USDT`];
     return t ? t.priceChangePercent : 0;
   };
@@ -329,6 +339,17 @@ export const AssetsScreen: React.FC = () => {
 
           <div className="flex items-center gap-1.5">
             <button
+              onClick={() => refreshMarketData()}
+              disabled={isRefreshingMarket}
+              className="w-7 h-7 rounded-lg flex items-center justify-center border bg-[#202630] border-[#2B3139] text-[#848E9C] hover:text-[#EAECEF] transition-colors disabled:opacity-60"
+              title="Refresh Market Prices & Portfolio"
+            >
+              <RefreshCw
+                size={13}
+                className={isRefreshingMarket ? 'animate-spin text-[#F0B90B]' : ''}
+              />
+            </button>
+            <button
               onClick={() => setShowPortfolioChart(!showPortfolioChart)}
               className={`w-7 h-7 rounded-lg flex items-center justify-center border transition-colors ${
                 showPortfolioChart
@@ -366,7 +387,16 @@ export const AssetsScreen: React.FC = () => {
 
         {/* Main Balance + Currency Dropdown */}
         <div className="flex items-baseline gap-2 mt-1 relative">
-          <span className="text-[30px] leading-[36px] font-bold text-[#EAECEF] tabular-nums tracking-tight">
+          <span
+            onClick={() => setHideBalance(!hideBalance)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') setHideBalance(!hideBalance);
+            }}
+            title={hideBalance ? 'Show Balance' : 'Hide Balance'}
+            className="text-[30px] leading-[36px] font-bold text-[#EAECEF] tabular-nums tracking-tight cursor-pointer"
+          >
             {hideBalance ? '******' : `${currencyMeta.symbol}${formatConverted(usdtValue)}`}
           </span>
           <div className="relative">
@@ -1261,8 +1291,8 @@ export const AssetsScreen: React.FC = () => {
           const chartSymbol = coin === 'USDT' || coin === 'USDC' ? 'BTCUSDT' : `${coin}USDT`;
 
           return (
-            <div className="fixed inset-0 bg-black/75 z-50 flex flex-col justify-end">
-              <div className="bg-[#181A20] border-t border-[#2B3139] rounded-t-2xl max-h-[88vh] flex flex-col overflow-hidden">
+            <div className="fixed inset-0 bg-black/75 z-50 flex flex-col justify-end pt-safe-top">
+              <div className="bg-[#181A20] border-t border-[#2B3139] rounded-t-2xl max-h-[calc(100dvh-var(--safe-area-top)-16px)] flex flex-col overflow-hidden pb-safe-bottom">
                 <div className="px-4 py-3.5 border-b border-[#2B3139] flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
                     <CoinIcon asset={coin} size="md" />
@@ -1473,7 +1503,7 @@ export const AssetsScreen: React.FC = () => {
 
       {/* Simple Earn Subscribe Modal */}
       {earnModalProduct && (
-        <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4 pt-safe-top pb-safe-bottom">
           <div className="bg-[#181A20] border border-[#2B3139] w-full max-w-sm rounded-2xl p-5">
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-2.5">
@@ -1532,8 +1562,8 @@ export const AssetsScreen: React.FC = () => {
 
       {/* Full Activity Timeline Modal */}
       {showHistoryModal && (
-        <div className="fixed inset-0 bg-black/75 z-50 flex flex-col justify-end">
-          <div className="bg-[#181A20] border-t border-[#2B3139] rounded-t-2xl max-h-[85vh] flex flex-col overflow-hidden">
+        <div className="fixed inset-0 bg-black/75 z-50 flex flex-col justify-end pt-safe-top">
+          <div className="bg-[#181A20] border-t border-[#2B3139] rounded-t-2xl max-h-[calc(100dvh-var(--safe-area-top)-16px)] flex flex-col overflow-hidden pb-safe-bottom">
             <div className="px-4 py-3.5 border-b border-[#2B3139] flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <History size={16} className="text-[#F0B90B]" />

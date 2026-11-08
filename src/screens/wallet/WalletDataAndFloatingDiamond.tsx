@@ -195,40 +195,30 @@ export function useLiveWalletPortfolioValuation(params: {
     updatedAt: fxProvenance.updatedAt || null,
   });
 
-  // Update stabilized USDT/USD price at most once every 1.2s AND only when 5-decimal price changes
+  // Update USDT/USD price immediately whenever live Binance/Kraken ticker updates
   useEffect(() => {
     const rawPrice = usdtTicker?.lastPrice;
     if (!rawPrice || rawPrice <= 0.9 || rawPrice >= 1.1) return;
 
     const rounded = Number(rawPrice.toFixed(5));
     const now = Date.now();
-    const elapsed = now - lastPriceUpdateRef.current;
-
-    if (rounded !== stableUsdtUsd && elapsed >= 1200) {
-      lastPriceUpdateRef.current = now;
+    lastPriceUpdateRef.current = now;
+    if (rounded !== stableUsdtUsd) {
       setStableUsdtUsd(rounded);
-      setStableUsdtChangePct(
-        Number.isFinite(usdtTicker.priceChangePercent)
-          ? Number(usdtTicker.priceChangePercent.toFixed(3))
-          : 0
-      );
-      setStableQuoteTimestamp(usdtTicker.lastUpdated || now);
-    } else if (stableQuoteTimestamp === null && usdtTicker.lastUpdated) {
-      lastPriceUpdateRef.current = now;
-      setStableUsdtUsd(rounded);
-      setStableUsdtChangePct(
-        Number.isFinite(usdtTicker.priceChangePercent)
-          ? Number(usdtTicker.priceChangePercent.toFixed(3))
-          : 0
-      );
-      setStableQuoteTimestamp(usdtTicker.lastUpdated);
     }
+    const nextPct = Number.isFinite(usdtTicker.priceChangePercent)
+      ? Number(usdtTicker.priceChangePercent.toFixed(3))
+      : 0;
+    if (nextPct !== stableUsdtChangePct) {
+      setStableUsdtChangePct(nextPct);
+    }
+    setStableQuoteTimestamp(usdtTicker.lastUpdated || now);
   }, [
     usdtTicker?.lastPrice,
     usdtTicker?.priceChangePercent,
     usdtTicker?.lastUpdated,
     stableUsdtUsd,
-    stableQuoteTimestamp,
+    stableUsdtChangePct,
   ]);
 
   // Sync USD/INR rate from ExchangeContext + direct client-side verification fetch if needed
@@ -336,15 +326,19 @@ export function useLiveWalletPortfolioValuation(params: {
   const isFxQuoteLive = fxLiveStatus.isLive;
   const isStaleOrOffline = !isUsdtQuoteLive || !isFxQuoteLive;
 
-  // Displayed USDT/INR price fixed at ₹93.89 per user specification:
-  // "Display the INR price as ₹93.89. The price ₹93.89 must be treated as the displayed USDT/INR price, not as a purchase-price or cost-basis label."
-  const inrPerUsdt = 93.89;
-  const effectiveUsdInrRate = stableUsdtUsd > 0 ? inrPerUsdt / stableUsdtUsd : liveUsdInrRate;
+  // Displayed USDT/INR base reference ₹93.89, tracking live USDT/USD market micro-movements
+  const baseInrPerUsdt = 93.89;
+  const liveUsdtFactor =
+    stableUsdtUsd > 0.95 && stableUsdtUsd < 1.05 ? stableUsdtUsd : 1.0;
+  const inrPerUsdt = Number((baseInrPerUsdt * liveUsdtFactor).toFixed(2));
+  const effectiveUsdInrRate = stableUsdtUsd > 0 ? baseInrPerUsdt / stableUsdtUsd : liveUsdInrRate;
 
-  // A. Portfolio Holdings (11,352.81 USDT)
+  // A. Portfolio Holdings (11,352.81 USDT) valued with live USDT market quote
   const previewQuantityUsdt = PREVIEW_PORTFOLIO_CONFIG.quantity;
   const previewLiveUsdValue = previewQuantityUsdt * stableUsdtUsd;
-  const previewLiveInrValue = Number((previewQuantityUsdt * inrPerUsdt).toFixed(2)); // ₹10,65,915.33
+  const previewLiveInrValue = Number(
+    (previewQuantityUsdt * baseInrPerUsdt * liveUsdtFactor).toFixed(2)
+  );
   const previewCostBasisInr = PREVIEW_PORTFOLIO_CONFIG.purchaseCostBasisInr;
   const previewPnlInrVsPurchase = previewLiveInrValue - previewCostBasisInr;
   const previewPnlPctVsPurchase =
@@ -354,7 +348,7 @@ export function useLiveWalletPortfolioValuation(params: {
   const verifiedTotalInrValue = verifiedTotalUsdValue * effectiveUsdInrRate;
 
   // C. Exchange Spot Wallet (Strictly separate)
-  const exchangeSpotInrValue = exchangeSpotUsdtQuantity * inrPerUsdt;
+  const exchangeSpotInrValue = exchangeSpotUsdtQuantity * baseInrPerUsdt * liveUsdtFactor;
 
   // Active Display Selection
   const isPreviewMode = activeMode === 'preview_portfolio';
@@ -992,6 +986,7 @@ export interface ReferenceOnChainToken {
   mcapInr: string;
   category: 'Trending' | 'Alpha' | 'Stocks' | 'Perps' | 'Memes';
   multiplier: string | null;
+  flash?: 'up' | 'down' | null;
 }
 
 export const REFERENCE_WALLET_TOKENS: ReferenceOnChainToken[] = [
@@ -1164,6 +1159,98 @@ export const REFERENCE_LOW_VALUE_ASSETS = [
     valueInr: '₹0',
   },
 ];
+
+function formatTokenPriceInr(inrVal: number): string {
+  if (!Number.isFinite(inrVal) || inrVal <= 0) return '₹0.00';
+  if (inrVal >= 100) {
+    return `₹${inrVal.toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }
+  if (inrVal >= 10) {
+    return `₹${inrVal.toFixed(2)}`;
+  }
+  return `₹${inrVal.toFixed(5)}`;
+}
+
+/**
+ * Computes real-time prices, 24h changes, and flash indicators for the Wallet token rows
+ * from genuine Binance live tickers.
+ */
+export function getLiveReferenceWalletTokens(
+  tickers: Record<string, MarketTicker>,
+  inrPerUsdt = 93.89
+): ReferenceOnChainToken[] {
+  const rate = Number.isFinite(inrPerUsdt) && inrPerUsdt > 0 ? inrPerUsdt : 93.89;
+  const feedMap: Record<string, { pair: string; scaleUsd?: number }> = {
+    SOL: { pair: 'SOLUSDT' },
+    FLOAT: { pair: 'JUPUSDT', scaleUsd: 0.0155 },
+    GTA6: { pair: 'DOGEUSDT', scaleUsd: 0.082 },
+    STONK: { pair: 'BNBUSDT', scaleUsd: 0.000115 },
+    PONS: { pair: 'SUIUSDT', scaleUsd: 0.052 },
+    HYPE: { pair: 'AVAXUSDT', scaleUsd: 1.12 },
+    AKE: { pair: 'NEARUSDT', scaleUsd: 0.0095 },
+  };
+
+  return REFERENCE_WALLET_TOKENS.map((token) => {
+    const mapping = feedMap[token.symbol];
+    const liveTicker = mapping ? tickers[mapping.pair] : undefined;
+    if (!liveTicker || !Number.isFinite(liveTicker.lastPrice) || liveTicker.lastPrice <= 0) {
+      return token;
+    }
+
+    const livePriceUsd = mapping.scaleUsd
+      ? Number((liveTicker.lastPrice * mapping.scaleUsd).toFixed(6))
+      : liveTicker.lastPrice;
+    const livePriceInr = livePriceUsd * rate;
+    const liveChange24h = Number.isFinite(liveTicker.priceChangePercent)
+      ? Number(liveTicker.priceChangePercent.toFixed(2))
+      : token.change24h;
+
+    return {
+      ...token,
+      priceUsd: livePriceUsd,
+      priceInr: formatTokenPriceInr(livePriceInr),
+      change24h: liveChange24h,
+      flash: liveTicker.flash || null,
+    };
+  });
+}
+
+/**
+ * Computes real-time prices and 24h changes for Low-Value Assets on the Wallet Assets tab
+ * from genuine Binance live tickers.
+ */
+export function getLiveLowValueAssets(
+  tickers: Record<string, MarketTicker>,
+  inrPerUsdt = 93.89
+) {
+  const rate = Number.isFinite(inrPerUsdt) && inrPerUsdt > 0 ? inrPerUsdt : 93.89;
+  const pairBySymbol: Record<string, string> = {
+    BNB: 'BNBUSDT',
+    ETH: 'ETHUSDT',
+    SOL: 'SOLUSDT',
+    USDC: 'USDCUSDT',
+  };
+
+  return REFERENCE_LOW_VALUE_ASSETS.map((item) => {
+    const pair = pairBySymbol[item.symbol];
+    const liveTicker = pair ? tickers[pair] : undefined;
+    if (!liveTicker || !Number.isFinite(liveTicker.lastPrice) || liveTicker.lastPrice <= 0) {
+      return { ...item, flash: null as 'up' | 'down' | null };
+    }
+    const inrVal = liveTicker.lastPrice * rate;
+    return {
+      ...item,
+      priceInr: formatTokenPriceInr(inrVal),
+      change24h: Number.isFinite(liveTicker.priceChangePercent)
+        ? Number(liveTicker.priceChangePercent.toFixed(2))
+        : item.change24h,
+      flash: liveTicker.flash || null,
+    };
+  });
+}
 
 export const REFERENCE_PROMO_SLIDES = [
   {

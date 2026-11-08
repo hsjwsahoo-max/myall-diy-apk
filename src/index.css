@@ -73,8 +73,10 @@
     --nt-card-radius: 16px;
     --nt-control-radius: 10px;
     --nt-pill-radius: 8px;
-    --safe-area-top: env(safe-area-inset-top, 0px);
-    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --android-safe-top: 0px;
+    --android-safe-bottom: 0px;
+    --safe-area-top: max(env(safe-area-inset-top, 0px), var(--android-safe-top, 0px));
+    --safe-area-bottom: max(env(safe-area-inset-bottom, 0px), var(--android-safe-bottom, 0px));
   }
 
   *,

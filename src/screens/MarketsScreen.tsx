@@ -9,6 +9,7 @@ import {
   Edit3,
   Flame,
   MoreHorizontal,
+  RefreshCw,
   Search,
   Sparkles,
   Star,
@@ -41,6 +42,8 @@ export const MarketsScreen: React.FC = () => {
     priceAlerts,
     addPriceAlert,
     removePriceAlert,
+    isRefreshingMarket,
+    refreshMarketData,
     showToast,
   } = useExchange();
 
@@ -531,6 +534,18 @@ export const MarketsScreen: React.FC = () => {
         />
         <button
           type="button"
+          onClick={() => refreshMarketData()}
+          disabled={isRefreshingMarket}
+          className="w-9 h-9 rounded-xl bg-[#202630] hover:bg-[#2B3139] flex items-center justify-center text-[#848E9C] hover:text-[#EAECEF] shrink-0 transition-colors disabled:opacity-60"
+          aria-label="Refresh Market Prices"
+          title="Refresh Market Prices"
+        >
+          <RefreshCw
+            className={`w-4 h-4 ${isRefreshingMarket ? 'animate-spin text-[#F0B90B]' : ''}`}
+          />
+        </button>
+        <button
+          type="button"
           onClick={() => setIsMenuOpen((v) => !v)}
           className="w-9 h-9 rounded-xl bg-[#202630] hover:bg-[#2B3139] flex items-center justify-center text-[#848E9C] hover:text-[#EAECEF] shrink-0 transition-colors"
           aria-label="Markets Menu"
@@ -542,6 +557,20 @@ export const MarketsScreen: React.FC = () => {
       {/* Dropdown Menu */}
       {isMenuOpen && (
         <div className="absolute right-0 top-11 z-30 w-60 rounded-2xl bg-[#202630] border border-[#2B3139] shadow-2xl p-1.5 space-y-1">
+          <button
+            type="button"
+            disabled={isRefreshingMarket}
+            onClick={() => {
+              setIsMenuOpen(false);
+              refreshMarketData();
+            }}
+            className="w-full px-3 py-2.5 rounded-xl hover:bg-[#2B3139] flex items-center gap-2.5 text-xs font-semibold text-[#EAECEF] text-left"
+          >
+            <RefreshCw
+              className={`w-4 h-4 text-[#FCD535] ${isRefreshingMarket ? 'animate-spin' : ''}`}
+            />
+            Refresh Live Market Prices
+          </button>
           <button
             type="button"
             onClick={() => {

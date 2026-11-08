@@ -362,11 +362,11 @@ export const TransferModal: React.FC = () => {
       {/* SUB-MODAL 1: Select a wallet (Video 1 0:16-0:21) */}
       {walletPickerTarget && (
         <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end justify-center"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end justify-center pt-safe-top"
           onClick={() => setWalletPickerTarget(null)}
         >
           <div
-            className="w-full max-w-[430px] bg-[#1E2329] rounded-t-3xl border-t border-[#2B3139] max-h-[84vh] flex flex-col overflow-hidden pb-safe-bottom animate-in slide-in-from-bottom duration-200"
+            className="w-full max-w-[430px] bg-[#1E2329] rounded-t-3xl border-t border-[#2B3139] max-h-[calc(100dvh-var(--safe-area-top)-16px)] flex flex-col overflow-hidden pb-safe-bottom animate-in slide-in-from-bottom duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-10 h-1 bg-[#474D57] rounded-full mx-auto mt-2.5" />
@@ -540,11 +540,11 @@ export const TransferModal: React.FC = () => {
       {/* SUB-MODAL 3: Transfer Preview & Confirmation Sheet (Requirement 3.E steps 9-10) */}
       {isPreviewConfirmOpen && (
         <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end justify-center"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end justify-center pt-safe-top"
           onClick={() => setIsPreviewConfirmOpen(false)}
         >
           <div
-            className="w-full max-w-[430px] bg-[#1E2329] rounded-t-3xl border-t border-[#2B3139] p-5 space-y-4 pb-safe-bottom animate-in slide-in-from-bottom duration-200"
+            className="w-full max-w-[430px] max-h-[calc(100dvh-var(--safe-area-top)-16px)] overflow-y-auto bg-[#1E2329] rounded-t-3xl border-t border-[#2B3139] p-5 space-y-4 pb-safe-bottom animate-in slide-in-from-bottom duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-10 h-1 bg-[#474D57] rounded-full mx-auto -mt-1" />
@@ -615,8 +615,8 @@ export const TransferModal: React.FC = () => {
 
       {/* SUB-MODAL 4: Transfer Successful Bottom Sheet (Exact reproduction of Video 1 0:39-0:41) */}
       {completedTx && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end justify-center">
-          <div className="w-full max-w-[430px] bg-[#1E2329] rounded-t-3xl border-t border-[#2B3139] p-5 text-center space-y-4 pb-safe-bottom animate-in slide-in-from-bottom duration-200">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end justify-center pt-safe-top">
+          <div className="w-full max-w-[430px] max-h-[calc(100dvh-var(--safe-area-top)-16px)] overflow-y-auto bg-[#1E2329] rounded-t-3xl border-t border-[#2B3139] p-5 text-center space-y-4 pb-safe-bottom animate-in slide-in-from-bottom duration-200">
             <div className="w-10 h-1 bg-[#474D57] rounded-full mx-auto -mt-1" />
 
             <div className="w-14 h-14 rounded-full bg-[#2EBD85]/15 border-2 border-[#2EBD85] flex items-center justify-center mx-auto">

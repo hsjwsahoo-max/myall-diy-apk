@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Globe,
   Headphones,
   Menu,
   MessageSquare,
   PieChart,
+  RefreshCw,
   ScanLine,
 } from 'lucide-react';
 import { DepositWithdrawModals } from './components/DepositWithdrawModals';
@@ -39,9 +40,52 @@ const ExchangeWorkspace: React.FC = () => {
     setProfileDrawerOpen,
     setMessagesModalOpen,
     setPayModalOpen,
+    isRefreshingMarket,
+    refreshMarketData,
+    refreshConnectedWalletBalances,
   } = useExchange();
 
   const [walletSplashVisible, setWalletSplashVisible] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const touchStartYRef = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (window.scrollY <= 4 && !isRefreshingMarket) {
+      touchStartYRef.current = e.touches[0]?.clientY ?? null;
+    } else {
+      touchStartYRef.current = null;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartYRef.current === null || isRefreshingMarket) return;
+    if (window.scrollY > 4) {
+      touchStartYRef.current = null;
+      setPullDistance(0);
+      return;
+    }
+    const currentY = e.touches[0]?.clientY ?? touchStartYRef.current;
+    const delta = currentY - touchStartYRef.current;
+    if (delta > 12) {
+      setPullDistance(Math.min(64, (delta - 12) * 0.45));
+    } else {
+      setPullDistance(0);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (pullDistance >= 38 && !isRefreshingMarket) {
+      setPullDistance(0);
+      touchStartYRef.current = null;
+      void Promise.allSettled([
+        refreshMarketData(),
+        appMode === 'wallet' ? refreshConnectedWalletBalances() : Promise.resolve(),
+      ]);
+      return;
+    }
+    setPullDistance(0);
+    touchStartYRef.current = null;
+  };
 
   const handleModeChange = (nextMode: AppMode) => {
     if (nextMode === appMode) return;
@@ -216,12 +260,36 @@ const ExchangeWorkspace: React.FC = () => {
 
       {/* Main Content Container — Standardized Padding & Safe Bottom Nav Clearance */}
       <main
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         className={`flex-1 w-full max-w-7xl mx-auto pb-safe-nav ${
           appMode === 'exchange' && (exchangeTab === 'home' || exchangeTab === 'markets')
             ? 'px-[var(--nt-page-px)] sm:px-5 pt-1.5'
             : 'px-0 sm:px-5'
         }`}
       >
+        {(pullDistance > 0 || isRefreshingMarket) && (
+          <div
+            className="flex items-center justify-center overflow-hidden transition-all duration-150"
+            style={{ height: isRefreshingMarket ? 28 : Math.round(pullDistance) }}
+          >
+            <div className="flex items-center gap-1.5 text-[11px] text-[#848E9C]">
+              <RefreshCw
+                className={`w-3.5 h-3.5 text-[#F0B90B] ${
+                  isRefreshingMarket || pullDistance >= 38 ? 'animate-spin' : ''
+                }`}
+              />
+              <span>
+                {isRefreshingMarket
+                  ? 'Updating market prices...'
+                  : pullDistance >= 38
+                  ? 'Release to refresh'
+                  : 'Pull to refresh'}
+              </span>
+            </div>
+          </div>
+        )}
         {appMode === 'exchange' ? (
           <>
             {exchangeTab === 'home' && <HomeScreen />}
