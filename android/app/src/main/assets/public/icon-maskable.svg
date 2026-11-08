@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Maskable safe zone: outer area will be cropped by Android rounded squircles, so content is kept within central 80% -->
+  <rect width="512" height="512" fill="#181A20"/>
+  <rect x="76" y="76" width="360" height="360" rx="72" fill="#202630" stroke="#2B3139" stroke-width="5"/>
+  <path d="M172 340V172L276 284V172M340 172V340L236 228" stroke="#FCD535" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="340" cy="172" r="22" fill="#0ECB81"/>
+</svg>
