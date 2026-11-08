@@ -4,12 +4,10 @@ dist/
 dev-dist/
 coverage/
 data/
-apk-distribution/
 .DS_Store
 *.log
 .env*
 !.env.example
-*.apk
 *.aab
 *.dex
 *.class
@@ -19,3 +17,6 @@ apk-distribution/
 *.sqlite*
 public/assets/aistudio/
 public/qa/
+!apk-distribution/
+!apk-distribution/app-debug.apk
+!apk-distribution/app-debug.apk.sha256
